@@ -1,0 +1,20 @@
+# Java
+target/
+*.iml
+.idea/
+.vscode/
+uploads/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/tfplan
+terraform/.terraform.lock.hcl
+
+# Mobile
+app-mobile/node_modules/
+app-mobile/.expo/
+
+# Secretos
+.env

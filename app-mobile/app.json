@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "App Lamar",
+    "slug": "app-lamar",
+    "version": "1.0.0",
+    "android": {
+      "usesCleartextTraffic": true
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permitir acceso a fotos para subir archivos"
+        }
+      ],
+      "expo-secure-store",
+      "expo-status-bar"
+    ]
+  }
+}
