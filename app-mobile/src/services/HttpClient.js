@@ -2,9 +2,9 @@ import axios from 'axios';
 import { API_URL } from '../config/api';
 import { TokenStorage } from './TokenStorage';
 
-export const http = axios.create({ baseURL: API_URL, timeout: 15000 });
+export const http = axios.create({ baseURL: API_URL, timeout: 60000 });
 
-let onUnauthorized = () => {};
+let onUnauthorized = () => { };
 export const setOnUnauthorized = (fn) => { onUnauthorized = fn; };
 
 // Interceptor: agrega el JWT a cada petición
