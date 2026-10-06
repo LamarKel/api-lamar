@@ -1,4 +1,4 @@
-# Valores NO secretos. Los secretos (BD, JWT) llegan desde GitHub Secrets.
+# Valores NO secretos.
 aws_region         = "us-east-2"
 project_name       = "api-lamar"
 lambda_memory      = 2048

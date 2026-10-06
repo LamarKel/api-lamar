@@ -5,9 +5,7 @@ locals {
   bucket_name = "${var.project_name}-uploads-${data.aws_caller_identity.current.account_id}"
 }
 
-# ======================================================================
-# 1. ECR - Repositorio de imágenes Docker de la API
-# ======================================================================
+# ECR - Repositorio de imágenes Docker de la API
 resource "aws_ecr_repository" "api" {
   name                 = local.name
   image_tag_mutability = "MUTABLE"
@@ -18,7 +16,7 @@ resource "aws_ecr_repository" "api" {
   }
 }
 
-# Solo conserva las últimas 5 imágenes (ahorra espacio/costo)
+# Solo conserva las últimas 5 imágenes 
 resource "aws_ecr_lifecycle_policy" "api" {
   repository = aws_ecr_repository.api.name
   policy = jsonencode({
@@ -35,9 +33,8 @@ resource "aws_ecr_lifecycle_policy" "api" {
   })
 }
 
-# ======================================================================
-# 2. S3 - Archivos subidos (el disco de Lambda es temporal)
-# ======================================================================
+
+# S3 Archivos subidos (el disco de Lambda es temporal)
 resource "aws_s3_bucket" "uploads" {
   bucket        = local.bucket_name
   force_destroy = true
@@ -67,9 +64,8 @@ resource "aws_s3_bucket_policy" "uploads_public_read" {
   })
 }
 
-# ======================================================================
-# 3. IAM - Rol que asume la Lambda
-# ======================================================================
+
+#  IAM - Rol que asume la Lambda
 resource "aws_iam_role" "lambda" {
   name = "${local.name}-lambda-role"
   assume_role_policy = jsonencode({
@@ -88,7 +84,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Permiso para subir/leer archivos SOLO en su bucket (mínimo privilegio)
+# Permiso para subir/leer archivos SOLO en su bucket 
 resource "aws_iam_role_policy" "lambda_s3" {
   name = "${local.name}-s3-access"
   role = aws_iam_role.lambda.id
@@ -102,9 +98,8 @@ resource "aws_iam_role_policy" "lambda_s3" {
   })
 }
 
-# ======================================================================
-# 4. CloudWatch Logs
-# ======================================================================
+
+# CloudWatch Logs
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.name}"
   retention_in_days = var.log_retention_days
@@ -115,9 +110,8 @@ resource "aws_cloudwatch_log_group" "api_gateway" {
   retention_in_days = var.log_retention_days
 }
 
-# ======================================================================
-# 5. Lambda - La API Spring Boot empaquetada como imagen Docker
-# ======================================================================
+
+# Lambda - La API Spring Boot empaquetada como imagen Docker
 resource "aws_lambda_function" "api" {
   function_name = local.name
   role          = aws_iam_role.lambda.arn
@@ -146,9 +140,7 @@ resource "aws_lambda_function" "api" {
   ]
 }
 
-# ======================================================================
-# 6. API Gateway (HTTP API) - Puerta de entrada pública
-# ======================================================================
+# API Gateway (HTTP API) - Puerta de entrada pública
 resource "aws_apigatewayv2_api" "api" {
   name          = "${local.name}-gateway"
   protocol_type = "HTTP"
