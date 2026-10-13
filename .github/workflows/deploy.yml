@@ -109,6 +109,13 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Login en ECR Public (evita límite de descargas)
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+        env:
+          AWS_REGION: us-east-1
+
       - name: Empaquetar Lambda (build y push de imagen Docker)
         working-directory: .
         run: |
