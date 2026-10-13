@@ -22,3 +22,18 @@ output "cloudwatch_log_group" {
   description = "Grupo de logs de la Lambda"
   value       = aws_cloudwatch_log_group.lambda.name
 }
+
+output "sns_topic_arn" {
+  description = "ARN del tema SNS de notificaciones"
+  value       = aws_sns_topic.notifications.arn
+}
+
+output "sqs_queue_url" {
+  description = "URL de la cola SQS de notificaciones"
+  value       = aws_sqs_queue.notifications.url
+}
+
+output "notification_lambda_name" {
+  description = "Nombre de la Lambda de notificaciones"
+  value       = aws_lambda_function.notification.function_name
+}

@@ -9,6 +9,7 @@ import DashboardScreen from './src/views/DashboardScreen';
 import UsuariosScreen from './src/views/UsuariosScreen';
 import UsuarioFormScreen from './src/views/UsuarioFormScreen';
 import UploadScreen from './src/views/UploadScreen';
+import NotificationScreen from './src/views/NotificationScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -37,6 +38,7 @@ export default function App() {
             <Stack.Screen name="Usuarios" component={UsuariosScreen} />
             <Stack.Screen name="UsuarioForm" component={UsuarioFormScreen} options={{ title: 'Usuario' }} />
             <Stack.Screen name="Upload" component={UploadScreen} options={{ title: 'Subir archivo' }} />
+            <Stack.Screen name="Notificaciones" component={NotificationScreen} options={{ title: 'Enviar correo' }} />
           </>
         )}
       </Stack.Navigator>

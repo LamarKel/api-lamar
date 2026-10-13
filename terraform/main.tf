@@ -5,7 +5,9 @@ locals {
   bucket_name = "${var.project_name}-uploads-${data.aws_caller_identity.current.account_id}"
 }
 
-# ECR - Repositorio de imágenes Docker de la API
+# ======================================================================
+# 1. ECR - Repositorio de imágenes Docker de la API
+# ======================================================================
 resource "aws_ecr_repository" "api" {
   name                 = local.name
   image_tag_mutability = "MUTABLE"
@@ -16,7 +18,7 @@ resource "aws_ecr_repository" "api" {
   }
 }
 
-# Solo conserva las últimas 5 imágenes 
+# Solo conserva las últimas 5 imágenes (ahorra espacio/costo)
 resource "aws_ecr_lifecycle_policy" "api" {
   repository = aws_ecr_repository.api.name
   policy = jsonencode({
@@ -33,8 +35,9 @@ resource "aws_ecr_lifecycle_policy" "api" {
   })
 }
 
-
-# S3 Archivos subidos (el disco de Lambda es temporal)
+# ======================================================================
+# 2. S3 - Archivos subidos (el disco de Lambda es temporal)
+# ======================================================================
 resource "aws_s3_bucket" "uploads" {
   bucket        = local.bucket_name
   force_destroy = true
@@ -64,8 +67,9 @@ resource "aws_s3_bucket_policy" "uploads_public_read" {
   })
 }
 
-
-#  IAM - Rol que asume la Lambda
+# ======================================================================
+# 3. IAM - Rol que asume la Lambda
+# ======================================================================
 resource "aws_iam_role" "lambda" {
   name = "${local.name}-lambda-role"
   assume_role_policy = jsonencode({
@@ -84,7 +88,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Permiso para subir/leer archivos SOLO en su bucket 
+# Permiso para subir/leer archivos SOLO en su bucket (mínimo privilegio)
 resource "aws_iam_role_policy" "lambda_s3" {
   name = "${local.name}-s3-access"
   role = aws_iam_role.lambda.id
@@ -98,8 +102,23 @@ resource "aws_iam_role_policy" "lambda_s3" {
   })
 }
 
+# Permiso para publicar en el tema SNS de notificaciones
+resource "aws_iam_role_policy" "lambda_sns_publish" {
+  name = "${local.name}-sns-publish"
+  role = aws_iam_role.lambda.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "sns:Publish"
+      Resource = aws_sns_topic.notifications.arn
+    }]
+  })
+}
 
-# CloudWatch Logs
+# ======================================================================
+# 4. CloudWatch Logs
+# ======================================================================
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.name}"
   retention_in_days = var.log_retention_days
@@ -110,8 +129,9 @@ resource "aws_cloudwatch_log_group" "api_gateway" {
   retention_in_days = var.log_retention_days
 }
 
-
-# Lambda - La API Spring Boot empaquetada como imagen Docker
+# ======================================================================
+# 5. Lambda - La API Spring Boot empaquetada como imagen Docker
+# ======================================================================
 resource "aws_lambda_function" "api" {
   function_name = local.name
   role          = aws_iam_role.lambda.arn
@@ -128,6 +148,7 @@ resource "aws_lambda_function" "api" {
       SPRING_DATASOURCE_PASSWORD = var.db_password
       JWT_SECRET                 = var.jwt_secret
       S3_BUCKET                  = aws_s3_bucket.uploads.bucket
+      SNS_TOPIC_ARN              = aws_sns_topic.notifications.arn
       UPLOAD_DIR                 = "/tmp/uploads" # único directorio escribible en Lambda
       AWS_LWA_PORT               = "8080"
       JAVA_TOOL_OPTIONS          = "-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
@@ -140,7 +161,9 @@ resource "aws_lambda_function" "api" {
   ]
 }
 
-# API Gateway (HTTP API) - Puerta de entrada pública
+# ======================================================================
+# 6. API Gateway (HTTP API) - Puerta de entrada pública
+# ======================================================================
 resource "aws_apigatewayv2_api" "api" {
   name          = "${local.name}-gateway"
   protocol_type = "HTTP"
@@ -196,4 +219,169 @@ resource "aws_lambda_permission" "apigw" {
   function_name = aws_lambda_function.api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/*/*"
+}
+
+# ######################################################################
+#  MENSAJERÍA DESACOPLADA: SNS -> SQS -> notification-lambda -> Correo
+# ######################################################################
+
+# ======================================================================
+# 7. SNS Topic - el backend publica aquí
+# ======================================================================
+resource "aws_sns_topic" "notifications" {
+  name = "${local.name}-notifications"
+}
+
+# ======================================================================
+# 8. SQS Queue (+ cola de mensajes fallidos)
+# ======================================================================
+resource "aws_sqs_queue" "notifications_dlq" {
+  name                      = "${local.name}-notifications-dlq"
+  message_retention_seconds = 1209600 # 14 días
+}
+
+resource "aws_sqs_queue" "notifications" {
+  name                       = "${local.name}-notifications-queue"
+  visibility_timeout_seconds = 60 # debe ser mayor que el timeout de la Lambda
+  message_retention_seconds  = 345600
+
+  # Si un mensaje falla 3 veces, se mueve a la DLQ
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.notifications_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+# Permite que SOLO este tema SNS escriba en la cola
+resource "aws_sqs_queue_policy" "notifications" {
+  queue_url = aws_sqs_queue.notifications.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowSNSPublish"
+      Effect    = "Allow"
+      Principal = { Service = "sns.amazonaws.com" }
+      Action    = "sqs:SendMessage"
+      Resource  = aws_sqs_queue.notifications.arn
+      Condition = {
+        ArnEquals = { "aws:SourceArn" = aws_sns_topic.notifications.arn }
+      }
+    }]
+  })
+}
+
+# ======================================================================
+# 9. Suscripción SNS -> SQS
+# ======================================================================
+resource "aws_sns_topic_subscription" "notifications_to_sqs" {
+  topic_arn            = aws_sns_topic.notifications.arn
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.notifications.arn
+  raw_message_delivery = true # la cola recibe el JSON tal cual, sin envoltorio de SNS
+  depends_on           = [aws_sqs_queue_policy.notifications]
+}
+
+# ======================================================================
+# 10. Amazon SES - identidades de correo verificadas
+#     (AWS envía un correo de verificación a cada dirección)
+# ======================================================================
+resource "aws_ses_email_identity" "sender" {
+  email = var.notification_sender_email
+}
+
+resource "aws_ses_email_identity" "recipients" {
+  for_each = toset(var.notification_test_recipients)
+  email    = each.value
+}
+
+# ======================================================================
+# 11. IAM Role de notification-lambda
+# ======================================================================
+resource "aws_iam_role" "notification_lambda" {
+  name = "notification-lambda-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "notification_logs" {
+  role       = aws_iam_role.notification_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "notification_permissions" {
+  name = "notification-lambda-permissions"
+  role = aws_iam_role.notification_lambda.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "LeerSQS"
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+        Resource = aws_sqs_queue.notifications.arn
+      },
+      {
+        Sid      = "EnviarCorreoSES"
+        Effect   = "Allow"
+        Action   = ["ses:SendEmail", "ses:SendRawEmail"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ======================================================================
+# 12. CloudWatch Logs de notification-lambda
+# ======================================================================
+resource "aws_cloudwatch_log_group" "notification_lambda" {
+  name              = "/aws/lambda/notification-lambda"
+  retention_in_days = var.log_retention_days
+}
+
+# ======================================================================
+# 13. notification-lambda (Node.js) - empaquetada en .zip por Terraform
+# ======================================================================
+data "archive_file" "notification_lambda" {
+  type        = "zip"
+  source_dir  = "${path.module}/../lambdas/notification"
+  output_path = "${path.module}/notification-lambda.zip"
+}
+
+resource "aws_lambda_function" "notification" {
+  function_name    = "notification-lambda"
+  role             = aws_iam_role.notification_lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.notification_lambda.output_path
+  source_code_hash = data.archive_file.notification_lambda.output_base64sha256
+  timeout          = 30
+  memory_size      = 256
+
+  environment {
+    variables = {
+      SENDER_EMAIL = var.notification_sender_email
+    }
+  }
+
+  depends_on = [
+    aws_cloudwatch_log_group.notification_lambda,
+    aws_iam_role_policy_attachment.notification_logs,
+  ]
+}
+
+# ======================================================================
+# 14. Event Source Mapping SQS -> notification-lambda
+# ======================================================================
+resource "aws_lambda_event_source_mapping" "sqs_to_notification" {
+  event_source_arn        = aws_sqs_queue.notifications.arn
+  function_name           = aws_lambda_function.notification.arn
+  batch_size              = 5
+  function_response_types = ["ReportBatchItemFailures"] # reintenta solo los mensajes que fallen
+  depends_on              = [aws_iam_role_policy.notification_permissions]
 }

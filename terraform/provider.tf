@@ -6,10 +6,15 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 
-
-  
+  # Estado remoto en S3: el runner de GitHub Actions se borra después de cada
+  # ejecución, así que el estado NO puede quedarse en local.
+  # El bucket se pasa en el workflow con -backend-config="bucket=..."
   backend "s3" {
     key          = "api-lamar/terraform.tfstate"
     use_lockfile = true

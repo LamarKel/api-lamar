@@ -35,6 +35,9 @@ export default function DashboardScreen({ navigation, onLogout }) {
       )}
       <TouchableOpacity style={s.btn} onPress={() => navigation.navigate('Usuarios')}><Text style={s.btnText}>Gestionar usuarios</Text></TouchableOpacity>
       <TouchableOpacity style={s.btn} onPress={() => navigation.navigate('Upload')}><Text style={s.btnText}>Subir archivo</Text></TouchableOpacity>
+      <TouchableOpacity style={s.btn} onPress={() => navigation.navigate('Notificaciones')}>
+        <Text style={s.btnText}>Enviar correo</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={s.btnOutline} onPress={onLogout}><Text style={s.btnOutlineText}>Cerrar sesión</Text></TouchableOpacity>
     </ScrollView>
   );

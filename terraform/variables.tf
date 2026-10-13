@@ -58,3 +58,15 @@ variable "jwt_secret" {
   type        = string
   sensitive   = true
 }
+
+# ---- Notificaciones por correo ----
+variable "notification_sender_email" {
+  description = "Correo remitente (debe verificarse en Amazon SES)"
+  type        = string
+}
+
+variable "notification_test_recipients" {
+  description = "Correos destino de prueba (SES en modo sandbox solo envía a correos verificados)"
+  type        = list(string)
+  default     = []
+}
