@@ -70,3 +70,14 @@ variable "notification_test_recipients" {
   type        = list(string)
   default     = []
 }
+variable "api_throttle_rate" {
+  description = "Peticiones por segundo permitidas en API Gateway"
+  type        = number
+  default     = 1000
+}
+
+variable "api_throttle_burst" {
+  description = "Ráfaga máxima permitida en API Gateway"
+  type        = number
+  default     = 500
+}

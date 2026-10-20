@@ -37,3 +37,7 @@ output "notification_lambda_name" {
   description = "Nombre de la Lambda de notificaciones"
   value       = aws_lambda_function.notification.function_name
 }
+output "dashboard_url" {
+  description = "Dashboard de CloudWatch para las pruebas de carga"
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards/dashboard/${aws_cloudwatch_dashboard.pruebas_carga.dashboard_name}"
+}

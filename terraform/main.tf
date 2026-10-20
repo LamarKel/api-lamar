@@ -207,8 +207,8 @@ resource "aws_apigatewayv2_stage" "default" {
   }
 
   default_route_settings {
-    throttling_burst_limit = 50
-    throttling_rate_limit  = 100
+    throttling_burst_limit = var.api_throttle_burst
+    throttling_rate_limit  = var.api_throttle_rate
   }
 }
 
@@ -365,7 +365,8 @@ resource "aws_lambda_function" "notification" {
 
   environment {
     variables = {
-      SENDER_EMAIL = var.notification_sender_email
+      SENDER_EMAIL     = var.notification_sender_email
+      SIMULATE_DOMAINS = "test.com"
     }
   }
 
@@ -384,4 +385,123 @@ resource "aws_lambda_event_source_mapping" "sqs_to_notification" {
   batch_size              = 5
   function_response_types = ["ReportBatchItemFailures"] # reintenta solo los mensajes que fallen
   depends_on              = [aws_iam_role_policy.notification_permissions]
+}
+# ======================================================================
+# 15. CloudWatch Dashboard - métricas para las pruebas de carga
+# ======================================================================
+resource "aws_cloudwatch_dashboard" "pruebas_carga" {
+  dashboard_name = "${local.name}-pruebas-carga"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type = "metric", x = 0, y = 0, width = 12, height = 6
+        properties = {
+          title = "API Gateway - Requests y errores", region = var.aws_region, stat = "Sum", period = 60
+          metrics = [
+            ["AWS/ApiGateway", "Count", "ApiId", aws_apigatewayv2_api.api.id],
+            [".", "4xx", ".", "."],
+            [".", "5xx", ".", "."],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 0, width = 12, height = 6
+        properties = {
+          title = "API Gateway - Latency vs Integration Latency (ms)", region = var.aws_region, period = 60
+          metrics = [
+            ["AWS/ApiGateway", "Latency", "ApiId", aws_apigatewayv2_api.api.id, { stat = "Average", label = "Latency prom" }],
+            ["...", { stat = "p95", label = "Latency p95" }],
+            [".", "IntegrationLatency", ".", ".", { stat = "Average", label = "Integration prom" }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 6, width = 12, height = 6
+        properties = {
+          title = "Lambda Principal (api-lamar)", region = var.aws_region, stat = "Sum", period = 60
+          metrics = [
+            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.api.function_name],
+            [".", "Errors", ".", "."],
+            [".", "Throttles", ".", "."],
+            [".", "ConcurrentExecutions", ".", ".", { stat = "Maximum" }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 6, width = 12, height = 6
+        properties = {
+          title = "Lambda Principal - Duration (ms)", region = var.aws_region, period = 60
+          metrics = [
+            ["AWS/Lambda", "Duration", "FunctionName", aws_lambda_function.api.function_name, { stat = "Average" }],
+            ["...", { stat = "p95" }],
+            ["...", { stat = "Maximum" }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 12, width = 8, height = 6
+        properties = {
+          title = "SNS", region = var.aws_region, stat = "Sum", period = 60
+          metrics = [
+            ["AWS/SNS", "NumberOfMessagesPublished", "TopicName", aws_sns_topic.notifications.name],
+            [".", "NumberOfNotificationsDelivered", ".", "."],
+            [".", "NumberOfNotificationsFailed", ".", "."],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 8, y = 12, width = 8, height = 6
+        properties = {
+          title = "SQS - Mensajes", region = var.aws_region, period = 60
+          metrics = [
+            ["AWS/SQS", "NumberOfMessagesSent", "QueueName", aws_sqs_queue.notifications.name, { stat = "Sum" }],
+            [".", "NumberOfMessagesDeleted", ".", ".", { stat = "Sum" }],
+            [".", "ApproximateNumberOfMessagesVisible", ".", ".", { stat = "Maximum" }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 16, y = 12, width = 8, height = 6
+        properties = {
+          title = "SQS - Antigüedad mensaje (s) y DLQ", region = var.aws_region, stat = "Maximum", period = 60
+          metrics = [
+            ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", aws_sqs_queue.notifications.name],
+            [".", "ApproximateNumberOfMessagesVisible", ".", aws_sqs_queue.notifications_dlq.name, { label = "Mensajes en DLQ" }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 18, width = 12, height = 6
+        properties = {
+          title = "Notification Lambda", region = var.aws_region, stat = "Sum", period = 60
+          metrics = [
+            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.notification.function_name],
+            [".", "Errors", ".", "."],
+            [".", "Throttles", ".", "."],
+            [".", "ConcurrentExecutions", ".", ".", { stat = "Maximum" }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 18, width = 12, height = 6
+        properties = {
+          title = "Notification Lambda - Duration (ms)", region = var.aws_region, period = 60
+          metrics = [
+            ["AWS/Lambda", "Duration", "FunctionName", aws_lambda_function.notification.function_name, { stat = "Average" }],
+            ["...", { stat = "Maximum" }],
+          ]
+        }
+      },
+      {
+        type = "log", x = 0, y = 24, width = 24, height = 6
+        properties = {
+          title  = "CloudWatch Logs - errores en las Lambdas"
+          region = var.aws_region
+          query  = "SOURCE '/aws/lambda/notification-lambda' | SOURCE '/aws/lambda/${aws_lambda_function.api.function_name}' | fields @timestamp, @log, @message | filter @message like /ERROR|Error|Exception|Task timed out/ | sort @timestamp desc | limit 50"
+          view   = "table"
+        }
+      },
+    ]
+  })
 }
